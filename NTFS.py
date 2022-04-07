@@ -24,8 +24,8 @@ class NTFS:
         self.MFT_Offset = int.from_bytes(self.BootSector[0x30:0x38], byteorder='little') * self.cluster     # byte
 
         self.MFT, self.MFT_Location = self.__MFT()     # MFT-Area
-        # self.FileTree, self.File_MFT_Entry_Address = self.__FileTree(self)
-        self.File_MFT_Entry_Address = self.__FileTree()
+        self.FileTree, self.File_MFT_Entry_Address = self.__FileTree()
+        # self.File_MFT_Entry_Address = self.__FileTree()
 
 
     # Get type of File System
@@ -59,7 +59,7 @@ class NTFS:
     def __MFT(self):
         buffer = self.image[self.MFT_Offset:self.MFT_Offset + 1024]         # $MFT
         buffer = buffer[int.from_bytes(buffer[20:22], byteorder='little'):] # $MFT Attribute part 
-        while buffer[:4] != b'\ff\ff\ff\ff':                                # 0xFFFFFFFF = End of Marker 
+        while buffer[:4] != b'\xff\xff\xff\xff':                                # 0xFFFFFFFF = End of Marker 
             if int.from_bytes(buffer[:4], byteorder='little') == 128:       # Finding $Data 
                 buffer = buffer[:int.from_bytes(buffer[4:8], byteorder='little')]
                 break
@@ -91,18 +91,18 @@ class NTFS:
         return MFT, MFT_location
 
     def __FileTree(self):
+        MFT = self.MFT 
+        File_MFT_Entry_Address = {} # {MFT-Entry-Address : (File Name, File Type)}
+        File_Tree = {} # {root: [Dir1, Dir2, File1, File2, .... ], }
+        
         if self.MFT == None:
             return print('File or MFT Area does not exist on NTFS.')
         else:
-            MFT = self.MFT 
-            File_MFT_Entry_Address = {} # {MFT-Entry-Address : (File Name, File Type)}
-            File_Tree = {} # {root: [Dir1, Dir2, File1, File2, .... ], }
-
             MFT_Entry_Address = 0
-            while MFT_Entry_Address  < :
+            while MFT_Entry_Address  < len(MFT) // 1024:
                 MFT_Entry = MFT[MFT_Entry_Address * 1024:(MFT_Entry_Address + 1 ) * 1024]           # MFT_Entry 
                 
-                if MFT_Entry[4:6] == b'\00\00':                                                     # Unallocated MFT-Entry
+                if MFT_Entry[4:6] == b'\x00\x00':                                                     # Unallocated MFT-Entry
                     MFT_Entry_Address += 1
                     continue
                 
@@ -113,31 +113,46 @@ class NTFS:
                 elif File_Type == 3:    File_Type = 'Directory'
 
                 MFT_Entry = MFT_Entry[int.from_bytes(MFT_Entry[20:22], byteorder='little'):]        # MFT_Entry Attribute part
-                while MFT_Entry[:4] != b'\ff\ff\ff\ff':                                             # 0xFFFFFFFF = End of Marker 
+                while MFT_Entry[:4] != b'\xff\xff\xff\xff':                                             # 0xFFFFFFFF = End of Marker 
                     if int.from_bytes(MFT_Entry[:4], byteorder='little') == 48:                     # Finding $File_Name  
                         MFT_Entry = MFT_Entry[:int.from_bytes(MFT_Entry[4:8], byteorder='little')]
                         break
                     else:
                         MFT_Entry = MFT_Entry[int.from_bytes(MFT_Entry[4:8], byteorder='little'):]
+                else:
+                    MFT_Entry_Address += 1
+                    continue
 
-                if MFT_Entry[8] == 0:                                                               # Checking &File_Name Attr Type 
+                if MFT_Entry[8] == 0:                                                               # Checking $File_Name Attr Type 
                     MFT_Entry = MFT_Entry[int.from_bytes(MFT_Entry[20:22], byteorder='little'):]    # $File_Name Contents
                     
                     # File_Reference_Address = (Sequence Number, File_Entry_Address)
                     # 부모 디렉터리 주소 = (부모 디렉터리의 Sequence Number, 부모 디렉터리의 File_Entry_Address)
                     # File_Tree 를 만들 때 사용할 것 
-                    File_Refer_of_parent_dir = (int.from_bytes(MFT_Entry[0:2], byteorder='little'), int.from_bytes(MFT_Entry[2:8], byteorder='little'))
+                    File_Refer_of_parent_dir = (int.from_bytes(MFT_Entry[6:8], byteorder='little'), int.from_bytes(MFT_Entry[:6], byteorder='little'))
                     
                     File_Name = b''                                 # Get File Name 
-                    for i in range(0, MFT_Entry[64], 2):
+                    for i in range(0, MFT_Entry[64] * 2, 2):
                         File_Name += bytes([MFT_Entry[66 + i]])
                     File_Name = File_Name.decode('utf-8')
                 
                 File_MFT_Entry_Address[MFT_Entry_Address] = (File_Name, File_Type)
+                
+                # Create File Tree 
+                if File_Refer_of_parent_dir[1] not in File_Tree:
+                    File_Tree[File_Refer_of_parent_dir[1]] = [MFT_Entry_Address]
+                else: 
+                    File_Tree[File_Refer_of_parent_dir[1]].append(MFT_Entry_Address)
+                
+                if MFT_Entry_Address not in File_Tree:
+                    File_Tree[MFT_Entry_Address] = [File_Refer_of_parent_dir[1]]
+                else: 
+                    File_Tree[MFT_Entry_Address].append(File_Refer_of_parent_dir[1])
+
                 MFT_Entry_Address += 1
 
-        return File_MFT_Entry_Address
-        # return File_Tree, File_MFT_Entry_Address
+        # return File_MFT_Entry_Address
+        return File_Tree, File_MFT_Entry_Address
     
 
     
@@ -181,7 +196,8 @@ def option1(n):
     print('Cluster Size : ', cluster, 'bytes(%d sectors)' %(cluster // sector))
     print('VBR Size : ', VBR_Size, 'bytes(%d sectors)' %(cluster // sector))
     print('MFT start Offset : ', hex(MFT_Offset))       
-    print('MFT-Entry Info : ', n.File_MFT_Entry_Address)       
+    print('MFT-Entry Info : ', n.File_MFT_Entry_Address)
+    print('File Tree : ', n.FileTree)       
     print('=======================================')
     if input('Shall we go back to Main menu?[yes] : ') == 'yes':
         print('Back to Main menu')
