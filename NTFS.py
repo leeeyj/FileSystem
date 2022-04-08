@@ -25,6 +25,7 @@ class NTFS:
 
         self.MFT, self.MFT_Location = self.__MFT()     # MFT-Area
         self.FileTree, self.File_MFT_Entry_Address = self.__FileTree()
+        self.FileTreeView =  'Root Directory\n'+ self.__DFS(5, 0)
         # self.File_MFT_Entry_Address = self.__FileTree()
 
 
@@ -42,6 +43,7 @@ class NTFS:
 
     # Get File Tree in NTFS
     def getFileTree(self):
+
         return self.FileTree
 
     # Export MFT Area
@@ -111,6 +113,7 @@ class NTFS:
                 elif File_Type == 1:    File_Type = 'File'
                 elif File_Type == 2:    File_Type = 'Deleted Directory'
                 elif File_Type == 3:    File_Type = 'Directory'
+                else : File_Type = 'Unknown'
 
                 MFT_Entry = MFT_Entry[int.from_bytes(MFT_Entry[20:22], byteorder='little'):]        # MFT_Entry Attribute part
                 while MFT_Entry[:4] != b'\xff\xff\xff\xff':                                             # 0xFFFFFFFF = End of Marker 
@@ -140,20 +143,51 @@ class NTFS:
                 
                 # Create File Tree 
                 if File_Refer_of_parent_dir[1] not in File_Tree:
-                    File_Tree[File_Refer_of_parent_dir[1]] = [MFT_Entry_Address]
+                    if MFT_Entry_Address != 5:
+                        File_Tree[File_Refer_of_parent_dir[1]] = [MFT_Entry_Address]
                 else: 
-                    File_Tree[File_Refer_of_parent_dir[1]].append(MFT_Entry_Address)
+                    if MFT_Entry_Address != 5:
+                        File_Tree[File_Refer_of_parent_dir[1]].append(MFT_Entry_Address)
                 
-                if MFT_Entry_Address not in File_Tree:
-                    File_Tree[MFT_Entry_Address] = [File_Refer_of_parent_dir[1]]
-                else: 
-                    File_Tree[MFT_Entry_Address].append(File_Refer_of_parent_dir[1])
-
                 MFT_Entry_Address += 1
 
         # return File_MFT_Entry_Address
         return File_Tree, File_MFT_Entry_Address
     
+
+    def __DFS(self, start, depth):
+        # <This function must be implemented recursively.>
+        stack = deque()
+        s = ''
+        stack.extend(self.FileTree[start])
+        
+        while stack:
+            node = stack.popleft()
+            if node in self.FileTree:
+                if depth > 0: s += '  ' * depth + '-> ' + '%s(%s)' %(self.File_MFT_Entry_Address[node][0], self.File_MFT_Entry_Address[node][1]) + '\n'
+                else: s += ' ' + '%s(%s)' %(self.File_MFT_Entry_Address[node][0], self.File_MFT_Entry_Address[node][1]) + '\n'
+                s += self.__DFS(node, depth + 1)
+            else:
+                if depth > 0: s += '  ' * depth + '-> ' + '%s(%s)' %(self.File_MFT_Entry_Address[node][0], self.File_MFT_Entry_Address[node][1]) + '\n'
+                else: s += ' ' + '%s(%s)' %(self.File_MFT_Entry_Address[node][0], self.File_MFT_Entry_Address[node][1]) + '\n'
+        return s
+
+        # -Root Directory
+        #  Dir -> File1
+        #      -> File2
+        #      -> File3
+        #      -> Dir2
+        #         -> File4
+        #         -> File5
+        #  File6
+        #  File7 
+        #     ......
+
+        
+        
+            
+
+        
 
     
 
@@ -226,6 +260,15 @@ def option3(n):
     if input('Shall we go back to Main menu?[yes] : ') == 'yes':
         print('Back to Main menu')
 
+def option4(n):
+    os.system('cls')
+    print('\n\t<File/Directory info>\t')
+    print('=======================================')
+    print(n.FileTreeView)
+    print('=======================================')
+    if input('Shall we go back to Main menu?[yes] : ') == 'yes':
+        print('Back to Main menu')
+
 
 def menu():
     file = fileInput()
@@ -252,6 +295,8 @@ def menu():
             option2(ntfs)
         elif option == 3:
             option3(ntfs)
+        elif option == 4:
+            option4(ntfs)
         else:
             print('Terminates the program.')
             break    
