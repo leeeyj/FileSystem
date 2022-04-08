@@ -115,7 +115,7 @@ class NTFS:
                 MFT_Entry = MFT_Entry[int.from_bytes(MFT_Entry[20:22], byteorder='little'):]        # MFT_Entry Attribute part
                 while MFT_Entry[:4] != b'\xff\xff\xff\xff':                                             # 0xFFFFFFFF = End of Marker 
                     if int.from_bytes(MFT_Entry[:4], byteorder='little') == 48:                     # Finding $File_Name  
-                        MFT_Entry = MFT_Entry[:int.from_bytes(MFT_Entry[4:8], byteorder='little')]
+                        MFT_Entry = MFT_Entry[:int.from_bclytes(MFT_Entry[4:8], byteorder='little')]
                         break
                     else:
                         MFT_Entry = MFT_Entry[int.from_bytes(MFT_Entry[4:8], byteorder='little'):]
