@@ -4,7 +4,23 @@ Date : 2022.04.01 ~
 Creater : Yong Jin Lee (from Information Security, Math and Cryptography, Kookmin.Univ, Seoul)
 '''
 
-from fileinput import filename
+''' 
+데이터 은닉 방식 
+1. 슬랙 공간 활용 ( File Slack )
+2. MFT-Entry의 슬랙 공간 활용 ( MFT-Entry Slack & Unallocation MFT-Entry )
+3. 할당된 MFT-Entry를 비할당으로 바꾸기 ( Allocation MFT-Entry -> Unallocation MFT-Entry )
+4. 사용하지 않는 MFT-Entry 활용
+5. ADS?  
+'''
+
+'''
+데이터 탐지 방식
+1. File Slack 확인 
+2. 할당된 MFT-Entry Slack 공간 확인 
+3. 비할당된 MFT-Entry 중에서 파일 정보가 있는 MFT-Entry 확인 
+3. MFT-Entry 확인 
+'''
+
 from tkinter import filedialog
 from collections import deque
 import os
@@ -23,10 +39,13 @@ class NTFS:
         self.VBR_Size = self.cluster                                                                        # byte
         self.MFT_Offset = int.from_bytes(self.BootSector[0x30:0x38], byteorder='little') * self.cluster     # byte
 
-        self.MFT, self.MFT_Location = self.__MFT()     # MFT-Area
-        self.FileTree, self.File_MFT_Entry_Address = self.__FileTree()
-        self.FileTreeView =  'Root Directory\n'+ self.__DFS(5, 0)
-        # self.File_MFT_Entry_Address = self.__FileTree()
+        self.MFT, self.MFT_Location = self.__MFT()                          # MFT-Area & MFT-Location 
+        self.FileTree, self.File_MFT_Entry_Address = self.__FileTree()      # File/Directory Tree, File/Directory's MFT-Entry-Address
+        self.FileTreeView =  'Root Directory\n'+ self.__DFS(5, 0)           # 
+
+        
+
+
 
 
     # Get type of File System
@@ -43,8 +62,7 @@ class NTFS:
 
     # Get File Tree in NTFS
     def getFileTree(self):
-
-        return self.FileTree
+        return self.FileTreeView
 
     # Export MFT Area
     def ExportMFT(self):
@@ -59,10 +77,10 @@ class NTFS:
 
     # MFT Area 
     def __MFT(self):
-        buffer = self.image[self.MFT_Offset:self.MFT_Offset + 1024]         # $MFT
-        buffer = buffer[int.from_bytes(buffer[20:22], byteorder='little'):] # $MFT Attribute part 
+        buffer = self.image[self.MFT_Offset:self.MFT_Offset + 1024]             # $MFT
+        buffer = buffer[int.from_bytes(buffer[20:22], byteorder='little'):]     # $MFT Attribute part 
         while buffer[:4] != b'\xff\xff\xff\xff':                                # 0xFFFFFFFF = End of Marker 
-            if int.from_bytes(buffer[:4], byteorder='little') == 128:       # Finding $Data 
+            if int.from_bytes(buffer[:4], byteorder='little') == 128:           # Finding $Data 
                 buffer = buffer[:int.from_bytes(buffer[4:8], byteorder='little')]
                 break
             else:
@@ -172,26 +190,6 @@ class NTFS:
                 else: s += ' ' + '%s(%s)' %(self.File_MFT_Entry_Address[node][0], self.File_MFT_Entry_Address[node][1]) + '\n'
         return s
 
-        # -Root Directory
-        #  Dir -> File1
-        #      -> File2
-        #      -> File3
-        #      -> Dir2
-        #         -> File4
-        #         -> File5
-        #  File6
-        #  File7 
-        #     ......
-
-        
-        
-            
-
-        
-
-    
-
-
 
 def fileInput():
     while True:
@@ -230,8 +228,8 @@ def option1(n):
     print('Cluster Size : ', cluster, 'bytes(%d sectors)' %(cluster // sector))
     print('VBR Size : ', VBR_Size, 'bytes(%d sectors)' %(cluster // sector))
     print('MFT start Offset : ', hex(MFT_Offset))       
-    print('MFT-Entry Info : ', n.File_MFT_Entry_Address)
-    print('File Tree : ', n.FileTree)       
+    # print('MFT-Entry Info : ', n.File_MFT_Entry_Address)
+    # print('File Tree : ', n.FileTree)       
     print('=======================================')
     if input('Shall we go back to Main menu?[yes] : ') == 'yes':
         print('Back to Main menu')
@@ -264,7 +262,7 @@ def option4(n):
     os.system('cls')
     print('\n\t<File/Directory info>\t')
     print('=======================================')
-    print(n.FileTreeView)
+    print(n.getFileTree())
     print('=======================================')
     if input('Shall we go back to Main menu?[yes] : ') == 'yes':
         print('Back to Main menu')
@@ -285,6 +283,8 @@ def menu():
         print('4. File/Directory info                 ')
         print('5. File analysis                       ')
         print('6. Directory analysis                  ')
+        print('7. Data hiding in NTFS                 ')
+        print('8. Hidden data detection in NTFS       ')
         print('0. Eixt                                ')
         print('=======================================')
 
