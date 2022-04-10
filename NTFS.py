@@ -15,10 +15,20 @@ Creater : Yong Jin Lee (from Information Security, Math and Cryptography, Kookmi
 
 from tkinter import filedialog
 from collections import deque
+from time import localtime, strftime
 import os
-from typing import Sequence
 
 class NTFS:
+    Attr = {b'\x10\x00\x00\x00':'$STANDARD_INFORMATION', b'\x30\x00\x00\x00':'$FILE_NAME', \
+            b'\x80\x00\x00\x00':'$DATA'}
+
+    File_Attr_Flag = {b'\x01\x00\x00\x00':'Read Only', b'\x02\x00\x00\x00':'Hidden', b'\x04\x00\x00\x00':'System', \
+                      b'\x20\x00\x00\x00':'Archive', b'\x40\x00\x00\x00':'Device', b'\x80\x00\x00\x00':'Normal', \
+                      b'\x00\x01\x00\x00':'Temporary', b'\x00\x02\x00\x00':'Sparse', b'\x00\x04\x00\x00':'Reparse Point',\
+                      b'\x00\x08\x00\x00':'Compressed', b'\x00\x10\x00\x00':'Offline', b'\x00\x40\x00\x00':'Encrypted', \
+                      b'\x00\x00\x00\x10':'Directory', b'\x03\x00\x00\x00':'Read Only and Hidden', b'\x05\x00\x00\x00':'Read Only and System', \
+                      b'\x06\x00\x00\x00':'Hidden and System'}
+
     def __init__(self, fileName):
         # Read NTFS
         self.buffer = open(fileName, 'rb')
@@ -35,8 +45,7 @@ class NTFS:
         self.MFT, self.MFT_Location = self.__MFT()     # MFT-Area
         self.FileTree, self.MFT_Entry_Address_File = self.__FileTree()
         self.File_MFT_Entry_Address = {v[0]:k for k, v in self.MFT_Entry_Address_File.items()}
-        self.FileTreeView =  'Root Directory\n'+ self.__DFS(5, 0)
-        # self.File_MFT_Entry_Address = self.__FileTree()
+        self.FileTreeView =  'Root Directory\n\t↓\n'+ self.__DFS(5, 0)
 
 
     # Get type of File System
@@ -65,20 +74,21 @@ class NTFS:
     
     # File Analysis 
     def __FileInfo(self, FileName):
-        if self.MFT_Entry_Address_File[self.File_MFT_Entry_Address[FileName]][1] != 'File' or \
-            self.MFT_Entry_Address_File[self.File_MFT_Entry_Address[FileName]][1] != 'Deleted File':
-            return print(FileName + ' is not File')
+        # if self.MFT_Entry_Address_File[self.File_MFT_Entry_Address[FileName]][1] != 'File' or \
+        #     self.MFT_Entry_Address_File[self.File_MFT_Entry_Address[FileName]][1] != 'Deleted File':
+        #     return print(FileName + ' is not File')
         
         MFT_Entry = self.MFT[self.File_MFT_Entry_Address[FileName] * 1024:(self.File_MFT_Entry_Address[FileName] + 1) * 1024]
 
+        # MFT-Entry Header Analysis 
         MFT_Entry_Header = MFT_Entry[:48]
-        Sequence_Number, Attr_Offset, Flags, Used_MFT_Entry_Size = self.__MFT_Entry_Header(MFT_Entry_Header)
+        Sequence_Number, Attr_Offset, Flags_Used, Used_MFT_Entry_Size = self.__MFT_Entry_Header(MFT_Entry_Header)
 
-        MFT_Entry_Attr = MFT_Entry[Attr_Offset:Used_MFT_Entry_Size-4]
-        self.__MFT_Entry_Attr(MFT_Entry_Attr)
-
-
-
+        # MFT-Entry Attribute Analysis 
+        MFT_Entry_Attr = MFT_Entry[Attr_Offset:Used_MFT_Entry_Size-8]
+        File_Attr_Info = self.__MFT_Entry_Attr(FileName, MFT_Entry_Attr)
+        
+        return Sequence_Number, Flags_Used, File_Attr_Info
 
     # Directory Analysis 
     def __DirInfo(self, DirName):
@@ -92,21 +102,143 @@ class NTFS:
     def __MFT_Entry_Header(self, MFT_Entry_Header):
         Sequence_Number = int.from_bytes(MFT_Entry_Header[16:18], byteorder='little')
         Attr_Offset = int.from_bytes(MFT_Entry_Header[20:22], byteorder='little')
-        Flags = int.from_bytes(MFT_Entry_Header[22:24], byteorder='little')
+        Flags_Used = int.from_bytes(MFT_Entry_Header[22:24], byteorder='little')
         Used_MFT_Entry_Size = int.from_bytes(MFT_Entry_Header[24:28], byteorder='little')
         
-        return Sequence_Number, Attr_Offset, Flags, Used_MFT_Entry_Size
+        return Sequence_Number, Attr_Offset, Flags_Used, Used_MFT_Entry_Size
 
 
-    def __MFT_Entry_Attr(self, MFT_Entry_Attr):
+    def __MFT_Entry_Attr(self, FileName, MFT_Entry_Attr):
+        Attr_Info = {}
 
-    def __Resident_Attr(self, Attr):
+        while MFT_Entry_Attr:
+            if MFT_Entry_Attr[:4] in NTFS.Attr:
+                Attr_Name = NTFS.Attr[MFT_Entry_Attr[:4]]
+            else:
+                MFT_Entry_Attr = MFT_Entry_Attr[int.from_bytes(MFT_Entry_Attr[4:8], byteorder='little'):]
+                continue
+            
+            if Attr_Name != Attr_Info:
+                Attr_Info[Attr_Name] = []
+            
+            Attr = MFT_Entry_Attr[:int.from_bytes(MFT_Entry_Attr[4:8], byteorder='little')]
+            MFT_Entry_Attr = MFT_Entry_Attr[int.from_bytes(MFT_Entry_Attr[4:8], byteorder='little'):]
+            
+            if Attr[8] == 0:
+                Attr_Info[Attr_Name].append(self.__Resident_Attr(Attr_Name, Attr))
+            else:
+                Attr_Info[Attr_Name].append(self.__Non_Resident_Attr(FileName, Attr_Name, Attr))
+        
+        return Attr_Info 
+
+
+    def __Resident_Attr(self, Attr_Name, Attr):
+        Attr_Content_Size = int.from_bytes(Attr[16:20], byteorder='little')
+        Attr_Content_Start_Location = int.from_bytes(Attr[20:22], byteorder='little')
+        Attr_Content = Attr[Attr_Content_Start_Location:Attr_Content_Start_Location + Attr_Content_Size]
+        if Attr_Name == '$STANDARD_INFORMATION':
+            Creation_Time, Modified_Time, MFT_Modified_Time, Last_Accessed_Time, File_Flags = self.__STDINFO(Attr_Content)
+            return {'Creation time':Creation_Time, 'Modified time':Modified_Time, 'MFT-Modified time':MFT_Modified_Time, \
+                    'Last accessed time':Last_Accessed_Time, '$STDINFO Flag':File_Flags}
+        elif Attr_Name == '$FILE_NAME':
+            File_Refer_of_parent_dir, Name_Creation_Time, Name_Modified_Time, \
+            Name_MFT_Modified_Time, Name_Last_Accessed_Time, File_Flags = self.__FNA(Attr_Content)
+            return {'File reference of parent directory':File_Refer_of_parent_dir, 'File name creation time':Name_Creation_Time, \
+                    'File name modified time':Name_Modified_Time, 'File name MFT-Modified time':Name_MFT_Modified_Time, \
+                    'File name last accessed time':Name_Last_Accessed_Time, '$FNA Flag':File_Flags}
+        elif Attr_Name == '$DATA':
+            Data = self.__DATA(Attr_Content)
+            return {'Data':Data} 
+
+
+
+    def __Non_Resident_Attr(self, FileName, Attr_Name, Attr):
+        # RunList_Start_VCN = int.from_bytes(Attr[16:24], byteorder='little')
+        # RunList_End_VCN = int.from_bytes(Attr[24:32], byteorder='little')
+        # Num_RunList = RunList_End_VCN - RunList_Start_VCN + 1               # Number of clusters
+
+        RunList_Start_Location = int.from_bytes(Attr[32:34], byteorder='little')
+
+        Attr_Content_Alloc_Size = int.from_bytes(Attr[40:48], byteorder='little')   # Byte
+        Attr_Content_Size = int.from_bytes(Attr[48:56], byteorder='little')         # Byte
+        Slack_Space = Attr_Content_Alloc_Size - Attr_Content_Size
+
+        RunList = Attr[RunList_Start_Location:]
+        RunLength, RunOffset, Attr_Content = 0, 0, b''
+
+        while True:
+            Byte1 = RunList[0]
+            if Byte1 == 0:
+                break
+            else:
+                RunLength = int.from_bytes(RunList[1:1+(Byte1 & 15)], byteorder='little') * self.cluster 
+                RunOffset = int.from_bytes(RunList[1+(Byte1 & 15):1+(Byte1 & 15) + (Byte1 >> 4)], byteorder='little') * self.cluster   
+            Attr_Content += self.image[RunOffset:RunOffset + RunLength]
+
+            if 1 + (Byte1 & 15) + (Byte1 >> 4) == len(RunList):
+                break
+            else:
+                RunList = RunList[1 + (Byte1 & 15) + (Byte1 >> 4):]
+        
+        Attr_Content = Attr_Content[:Attr_Content_Size]
+
+        if Attr_Name == '$STANDARD_INFORMATION':
+            Creation_Time, Modified_Time, MFT_Modified_Time, Last_Accessed_Time, File_Flags = self.__STDINFO(Attr_Content)
+            return {'Creation time':Creation_Time, 'Modified time':Modified_Time, 'MFT-Modified time':MFT_Modified_Time, \
+                    'Last accessed time':Last_Accessed_Time, '$STDINFO Flag':File_Flags, 'Attribute content allocation size':Attr_Content_Alloc_Size, \
+                    'Attribute content size':Attr_Content_Size, 'Slack space size':Slack_Space}
+        elif Attr_Name == '$FILE_NAME':
+            File_Refer_of_parent_dir, Name_Creation_Time, Name_Modified_Time, \
+            Name_MFT_Modified_Time, Name_Last_Accessed_Time, File_Flags = self.__FNA(Attr_Content)
+            return {'File reference of parent directory':File_Refer_of_parent_dir, 'File name creation time':Name_Creation_Time, \
+                    'File name modified time':Name_Modified_Time, 'File name MFT-Modified time':Name_MFT_Modified_Time, \
+                    'File name last accessed time':Name_Last_Accessed_Time, '$FNA Flag':File_Flags, 'Attribute content allocation size':Attr_Content_Alloc_Size, \
+                    'Attribute content size':Attr_Content_Size, 'Slack space size':Slack_Space}
+        elif Attr_Name == '$DATA':
+            option = input("Do you want to export File data?(yes/no) : ")
+            Data = self.__DATA(Attr_Content)
+            if option == 'yes':
+                f = open('./'+FileName, 'wb')
+                f.write(Data)
+                f.close()
+
+            return {'Data allocation size':Attr_Content_Alloc_Size, 'Data size':Attr_Content_Size, \
+                    'Slack space size':Slack_Space}
+
+
+    def __STDINFO(self, Attr_Content):
+        Creation_Time = self.__FileTimeConvert(int.from_bytes(Attr_Content[:8], byteorder='little'))
+        Modified_Time = self.__FileTimeConvert(int.from_bytes(Attr_Content[8:16], byteorder='little'))
+        MFT_Modified_Time = self.__FileTimeConvert(int.from_bytes(Attr_Content[16:24], byteorder='little'))
+        Last_Accessed_Time = self.__FileTimeConvert(int.from_bytes(Attr_Content[24:32], byteorder='little'))
+        if Attr_Content[32:36] in NTFS.File_Attr_Flag:
+            File_Flags = NTFS.File_Attr_Flag[Attr_Content[32:36]]
+        else:
+            File_Flags = 'To be updated later...'
+        return Creation_Time, Modified_Time, MFT_Modified_Time, Last_Accessed_Time, File_Flags
+
+
+    def __FNA(self, Attr_Content):
+        File_Refer_of_parent_dir = (int.from_bytes(Attr_Content[:8][6:8], byteorder='little'), int.from_bytes(Attr_Content[:8][:6], byteorder='little'))
+        Name_Creation_Time = self.__FileTimeConvert(int.from_bytes(Attr_Content[8:16], byteorder='little'))
+        Name_Modified_Time = self.__FileTimeConvert(int.from_bytes(Attr_Content[16:24], byteorder='little'))
+        Name_MFT_Modified_Time = self.__FileTimeConvert(int.from_bytes(Attr_Content[24:32], byteorder='little'))
+        Name_Last_Accessed_Time = self.__FileTimeConvert(int.from_bytes(Attr_Content[32:40], byteorder='little'))
+        if Attr_Content[56:60] in NTFS.File_Attr_Flag:
+            File_Flags = NTFS.File_Attr_Flag[Attr_Content[56:60]]
+        else:
+            File_Flags = 'To be updated later...'
+        return File_Refer_of_parent_dir, Name_Creation_Time, Name_Modified_Time, Name_MFT_Modified_Time, Name_Last_Accessed_Time, File_Flags
     
-    def __Non_Resident_Attr(self, Attr):
-
-
-
-
+    
+    def __DATA(self, Attr_Content):
+        return Attr_Content
+    
+    def __FileTimeConvert(self, timestamp):
+        local=localtime((timestamp/10000000)-11644473600)
+        time_format='%Y-%m-%d %H:%M:%S'
+        result= strftime(time_format, local)
+        return result 
 
     # Export MFT Area
     def ExportMFT(self):
@@ -315,6 +447,20 @@ def option4(n):
         print('Back to Main menu')
 
 
+def option5(n):
+    os.system('cls')
+    print('\n\t<File Analysis>\t')
+    FileName = input("Please enter a file name : ")
+    SequenceNumber, Flags_Used, File_Attr_Info = n.getFileInfo(FileName)
+    print('=======================================')
+    print('Sequence number : ', SequenceNumber)
+    print('Flags(In-used?) : ', Flags_Used)
+    print('Attribute : ', File_Attr_Info)
+    print('=======================================')
+    if input('Shall we go back to Main menu?[yes] : ') == 'yes':
+        print('Back to Main menu')
+
+
 def menu():
     file = fileInput()
     print('Loading...')
@@ -344,6 +490,8 @@ def menu():
             option3(ntfs)
         elif option == 4:
             option4(ntfs)
+        elif option == 5:
+            option5(ntfs)
         else:
             print('Terminates the program.')
             break    
