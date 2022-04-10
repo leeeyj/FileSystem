@@ -4,10 +4,21 @@ Date : 2022.04.01 ~
 Creater : Yong Jin Lee (from Information Security, Math and Cryptography, Kookmin.Univ, Seoul)
 '''
 
+'''
+<Data Hiding> 
+ 1. File Slack 
+ 2. MFT-Entry Slack 
+ 3. Unallocation MFT-Entry 
+ 4. Change allocation MFT-Entry to Unallocation MFT-Entry 
+ 5. ADS?
+'''
+
+
 from fileinput import filename
 from tkinter import filedialog
 from collections import deque
 import os
+from typing import Sequence
 
 class NTFS:
     def __init__(self, fileName):
@@ -24,7 +35,8 @@ class NTFS:
         self.MFT_Offset = int.from_bytes(self.BootSector[0x30:0x38], byteorder='little') * self.cluster     # byte
 
         self.MFT, self.MFT_Location = self.__MFT()     # MFT-Area
-        self.FileTree, self.File_MFT_Entry_Address = self.__FileTree()
+        self.FileTree, self.MFT_Entry_Address_File = self.__FileTree()
+        self.File_MFT_Entry_Address = {v[0]:k for k, v in self.MFT_Entry_Address_File.items()}
         self.FileTreeView =  'Root Directory\n'+ self.__DFS(5, 0)
         # self.File_MFT_Entry_Address = self.__FileTree()
 
@@ -43,8 +55,60 @@ class NTFS:
 
     # Get File Tree in NTFS
     def getFileTree(self):
+        return print(self.FileTreeView)
 
-        return self.FileTree
+    # Get File informations 
+    def getFileInfo(self, FileName):
+        return self.__FileInfo(FileName)
+    
+    # Get Directory informations 
+    def getDirInfo(self, DirName):
+        return self.__DirInfo(DirName)
+    
+    # File Analysis 
+    def __FileInfo(self, FileName):
+        if self.MFT_Entry_Address_File[self.File_MFT_Entry_Address[FileName]][1] != 'File' or \
+            self.MFT_Entry_Address_File[self.File_MFT_Entry_Address[FileName]][1] != 'Deleted File':
+            return print(FileName + ' is not File')
+        
+        MFT_Entry = self.MFT[self.File_MFT_Entry_Address[FileName] * 1024:(self.File_MFT_Entry_Address[FileName] + 1) * 1024]
+
+        MFT_Entry_Header = MFT_Entry[:48]
+        Sequence_Number, Attr_Offset, Flags, Used_MFT_Entry_Size = self.__MFT_Entry_Header(MFT_Entry_Header)
+
+        MFT_Entry_Attr = MFT_Entry[Attr_Offset:Used_MFT_Entry_Size-4]
+        self.__MFT_Entry_Attr(MFT_Entry_Attr)
+
+
+
+
+    # Directory Analysis 
+    def __DirInfo(self, DirName):
+        if self.MFT_Entry_Address_File[self.File_MFT_Entry_Address[DirName]][1] != 'Directory' or \
+            self.MFT_Entry_Address_File[self.File_MFT_Entry_Address[DirName]][1] != 'Deleted Directory':
+            return print(DirName + ' is not Directory')
+        
+        MFT_Entry = self.MFT[self.File_MFT_Entry_Address[DirName] * 1024:(self.File_MFT_Entry_Address[DirName] + 1) * 1024]
+        
+
+    def __MFT_Entry_Header(self, MFT_Entry_Header):
+        Sequence_Number = int.from_bytes(MFT_Entry_Header[16:18], byteorder='little')
+        Attr_Offset = int.from_bytes(MFT_Entry_Header[20:22], byteorder='little')
+        Flags = int.from_bytes(MFT_Entry_Header[22:24], byteorder='little')
+        Used_MFT_Entry_Size = int.from_bytes(MFT_Entry_Header[24:28], byteorder='little')
+        
+        return Sequence_Number, Attr_Offset, Flags, Used_MFT_Entry_Size
+
+
+    def __MFT_Entry_Attr(self, MFT_Entry_Attr):
+
+    def __Resident_Attr(self, Attr):
+    
+    def __Non_Resident_Attr(self, Attr):
+
+
+
+
 
     # Export MFT Area
     def ExportMFT(self):
@@ -94,7 +158,7 @@ class NTFS:
 
     def __FileTree(self):
         MFT = self.MFT 
-        File_MFT_Entry_Address = {} # {MFT-Entry-Address : (File Name, File Type)}
+        MFT_Entry_Address_File = {} # {MFT-Entry-Address : (File Name, File Type)}
         File_Tree = {} # {root: [Dir1, Dir2, File1, File2, .... ], }
         
         if self.MFT == None:
@@ -118,7 +182,7 @@ class NTFS:
                 MFT_Entry = MFT_Entry[int.from_bytes(MFT_Entry[20:22], byteorder='little'):]        # MFT_Entry Attribute part
                 while MFT_Entry[:4] != b'\xff\xff\xff\xff':                                             # 0xFFFFFFFF = End of Marker 
                     if int.from_bytes(MFT_Entry[:4], byteorder='little') == 48:                     # Finding $File_Name  
-                        MFT_Entry = MFT_Entry[:int.from_bclytes(MFT_Entry[4:8], byteorder='little')]
+                        MFT_Entry = MFT_Entry[:int.from_bytes(MFT_Entry[4:8], byteorder='little')]
                         break
                     else:
                         MFT_Entry = MFT_Entry[int.from_bytes(MFT_Entry[4:8], byteorder='little'):]
@@ -139,7 +203,7 @@ class NTFS:
                         File_Name += bytes([MFT_Entry[66 + i]])
                     File_Name = File_Name.decode('utf-8')
                 
-                File_MFT_Entry_Address[MFT_Entry_Address] = (File_Name, File_Type)
+                MFT_Entry_Address_File[MFT_Entry_Address] = (File_Name, File_Type)
                 
                 # Create File Tree 
                 if File_Refer_of_parent_dir[1] not in File_Tree:
@@ -151,8 +215,8 @@ class NTFS:
                 
                 MFT_Entry_Address += 1
 
-        # return File_MFT_Entry_Address
-        return File_Tree, File_MFT_Entry_Address
+        # return MFT_Entry_Address_File
+        return File_Tree, MFT_Entry_Address_File
     
 
     def __DFS(self, start, depth):
@@ -164,33 +228,13 @@ class NTFS:
         while stack:
             node = stack.popleft()
             if node in self.FileTree:
-                if depth > 0: s += '  ' * depth + '-> ' + '%s(%s)' %(self.File_MFT_Entry_Address[node][0], self.File_MFT_Entry_Address[node][1]) + '\n'
-                else: s += ' ' + '%s(%s)' %(self.File_MFT_Entry_Address[node][0], self.File_MFT_Entry_Address[node][1]) + '\n'
+                if depth > 0: s += '  ' * depth + '-> ' + '%s(%s)' %(self.MFT_Entry_Address_File[node][0], self.MFT_Entry_Address_File[node][1]) + '\n'
+                else: s += ' ' + '%s(%s)' %(self.MFT_Entry_Address_File[node][0], self.MFT_Entry_Address_File[node][1]) + '\n'
                 s += self.__DFS(node, depth + 1)
             else:
-                if depth > 0: s += '  ' * depth + '-> ' + '%s(%s)' %(self.File_MFT_Entry_Address[node][0], self.File_MFT_Entry_Address[node][1]) + '\n'
-                else: s += ' ' + '%s(%s)' %(self.File_MFT_Entry_Address[node][0], self.File_MFT_Entry_Address[node][1]) + '\n'
+                if depth > 0: s += '  ' * depth + '-> ' + '%s(%s)' %(self.MFT_Entry_Address_File[node][0], self.MFT_Entry_Address_File[node][1]) + '\n'
+                else: s += ' ' + '%s(%s)' %(self.MFT_Entry_Address_File[node][0], self.MFT_Entry_Address_File[node][1]) + '\n'
         return s
-
-        # -Root Directory
-        #  Dir -> File1
-        #      -> File2
-        #      -> File3
-        #      -> Dir2
-        #         -> File4
-        #         -> File5
-        #  File6
-        #  File7 
-        #     ......
-
-        
-        
-            
-
-        
-
-    
-
 
 
 def fileInput():
@@ -219,6 +263,7 @@ def fileInput():
                 os.system('cls')
     return FileName
 
+
 def option1(n):
     os.system('cls')
     Type = n.getType()
@@ -230,8 +275,9 @@ def option1(n):
     print('Cluster Size : ', cluster, 'bytes(%d sectors)' %(cluster // sector))
     print('VBR Size : ', VBR_Size, 'bytes(%d sectors)' %(cluster // sector))
     print('MFT start Offset : ', hex(MFT_Offset))       
-    print('MFT-Entry Info : ', n.File_MFT_Entry_Address)
-    print('File Tree : ', n.FileTree)       
+    # print('MFT-Entry Info : ', n.File_MFT_Entry_Address)
+    # print('MFT-Entry Info : ', n.MFT_Entry_Address_File)
+    # print('File Tree : ', n.FileTree)       
     print('=======================================')
     if input('Shall we go back to Main menu?[yes] : ') == 'yes':
         print('Back to Main menu')
@@ -260,11 +306,12 @@ def option3(n):
     if input('Shall we go back to Main menu?[yes] : ') == 'yes':
         print('Back to Main menu')
 
+
 def option4(n):
     os.system('cls')
-    print('\n\t<File/Directory info>\t')
+    print('\n\t<File/Directory Tree>\t')
     print('=======================================')
-    print(n.FileTreeView)
+    n.getFileTree()
     print('=======================================')
     if input('Shall we go back to Main menu?[yes] : ') == 'yes':
         print('Back to Main menu')
@@ -282,7 +329,7 @@ def menu():
         print('1. NTFS basic informations             ')
         print('2. Master File Table Area info         ')
         print('3. Export Master File Table            ')
-        print('4. File/Directory info                 ')
+        print('4. File/Directory Tree                 ')
         print('5. File analysis                       ')
         print('6. Directory analysis                  ')
         print('0. Eixt                                ')
