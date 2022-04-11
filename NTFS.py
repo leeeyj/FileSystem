@@ -13,10 +13,6 @@ Creater : Yong Jin Lee (from Information Security, Math and Cryptography, Kookmi
  5. ADS?
 '''
 
-<<<<<<< HEAD
-
-=======
->>>>>>> 5f73aea52471c34c0b638046c403418759e96032
 from tkinter import filedialog
 from collections import deque
 from time import localtime, strftime
@@ -78,10 +74,15 @@ class NTFS:
     
     # File Analysis 
     def __FileInfo(self, FileName):
-        # if self.MFT_Entry_Address_File[self.File_MFT_Entry_Address[FileName]][1] != 'File' or \
-        #     self.MFT_Entry_Address_File[self.File_MFT_Entry_Address[FileName]][1] != 'Deleted File':
-        #     return print(FileName + ' is not File')
-        
+        if FileName not in self.File_MFT_Entry_Address:
+            print('File does not exist!')
+            return None, None, None 
+
+        if self.MFT_Entry_Address_File[self.File_MFT_Entry_Address[FileName]][1] != 'File' and\
+            self.MFT_Entry_Address_File[self.File_MFT_Entry_Address[FileName]][1] != 'Deleted File':
+            print('This is not a File!')
+            return None, None, None
+
         MFT_Entry = self.MFT[self.File_MFT_Entry_Address[FileName] * 1024:(self.File_MFT_Entry_Address[FileName] + 1) * 1024]
 
         # MFT-Entry Header Analysis 
@@ -94,13 +95,23 @@ class NTFS:
         
         return Sequence_Number, Flags_Used, File_Attr_Info
 
+
     # Directory Analysis 
     def __DirInfo(self, DirName):
-        if self.MFT_Entry_Address_File[self.File_MFT_Entry_Address[DirName]][1] != 'Directory' or \
+        if DirName not in self.File_MFT_Entry_Address:
+            print('Directory does not exist!')
+            return None, None, None 
+
+        if self.MFT_Entry_Address_File[self.File_MFT_Entry_Address[DirName]][1] != 'Directory' and\
             self.MFT_Entry_Address_File[self.File_MFT_Entry_Address[DirName]][1] != 'Deleted Directory':
-            return print(DirName + ' is not Directory')
-        
+            print('This is not a Directory!')
+            return None, None, None
+
         MFT_Entry = self.MFT[self.File_MFT_Entry_Address[DirName] * 1024:(self.File_MFT_Entry_Address[DirName] + 1) * 1024]
+        
+        # MFT-Entry Header Analysis 
+        MFT_Entry_Header = MFT_Entry[:48]
+        Sequence_Number, Attr_Offset, Flags_Used, Used_MFT_Entry_Size = self.__MFT_Entry_Header(MFT_Entry_Header)
         
 
     def __MFT_Entry_Header(self, MFT_Entry_Header):
@@ -459,8 +470,20 @@ def option5(n):
     print('=======================================')
     print('Sequence number : ', SequenceNumber)
     print('Flags(In-used?) : ', Flags_Used)
-    print('Attribute : ', File_Attr_Info)
-    print('=======================================')
+    if File_Attr_Info != None:
+        print('Attribute : ')
+        for attr in File_Attr_Info:
+            print(' ' + attr + ' : ')
+            for attrDict in File_Attr_Info[attr]:
+                for content in attrDict:
+                    print('\t' + content +' : ', end='')
+                    print(attrDict[content])
+            print('\n')
+        print('=======================================')
+    else:
+        print('Attribute : ', File_Attr_Info)
+        print('=======================================')
+
     if input('Shall we go back to Main menu?[yes] : ') == 'yes':
         print('Back to Main menu')
 
