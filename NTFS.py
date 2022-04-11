@@ -14,11 +14,9 @@ Creater : Yong Jin Lee (from Information Security, Math and Cryptography, Kookmi
 '''
 
 
-from fileinput import filename
 from tkinter import filedialog
 from collections import deque
 import os
-from typing import Sequence
 
 class NTFS:
     def __init__(self, fileName):
