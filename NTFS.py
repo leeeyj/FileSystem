@@ -20,7 +20,7 @@ import os
 
 class NTFS:
     Attr = {b'\x10\x00\x00\x00':'$STANDARD_INFORMATION', b'\x30\x00\x00\x00':'$FILE_NAME', \
-            b'\x80\x00\x00\x00':'$DATA'}
+            b'\x80\x00\x00\x00':'$DATA', b'\x90\x00\x00\x00':'$INDEX_ROOT'}
 
     File_Attr_Flag = {b'\x01\x00\x00\x00':'Read Only', b'\x02\x00\x00\x00':'Hidden', b'\x04\x00\x00\x00':'System', \
                       b'\x20\x00\x00\x00':'Archive', b'\x40\x00\x00\x00':'Device', b'\x80\x00\x00\x00':'Normal', \
@@ -88,6 +88,11 @@ class NTFS:
         # MFT-Entry Header Analysis 
         MFT_Entry_Header = MFT_Entry[:48]
         Sequence_Number, Attr_Offset, Flags_Used, Used_MFT_Entry_Size = self.__MFT_Entry_Header(MFT_Entry_Header)
+        if   Flags_Used == 0:    Flags_Used = 'Deleted File'
+        elif Flags_Used == 1:    Flags_Used = 'File'
+        elif Flags_Used == 2:    Flags_Used = 'Deleted Directory'
+        elif Flags_Used == 3:    Flags_Used = 'Directory'
+        else : Flags_Used = 'Unknown'
 
         # MFT-Entry Attribute Analysis 
         MFT_Entry_Attr = MFT_Entry[Attr_Offset:Used_MFT_Entry_Size-8]
@@ -112,7 +117,18 @@ class NTFS:
         # MFT-Entry Header Analysis 
         MFT_Entry_Header = MFT_Entry[:48]
         Sequence_Number, Attr_Offset, Flags_Used, Used_MFT_Entry_Size = self.__MFT_Entry_Header(MFT_Entry_Header)
-        
+        if   Flags_Used == 0:    Flags_Used = 'Deleted File'
+        elif Flags_Used == 1:    Flags_Used = 'File'
+        elif Flags_Used == 2:    Flags_Used = 'Deleted Directory'
+        elif Flags_Used == 3:    Flags_Used = 'Directory'
+        else : Flags_Used = 'Unknown'
+
+        # MFT-Entry Attribute Analysis 
+        MFT_Entry_Attr = MFT_Entry[Attr_Offset:Used_MFT_Entry_Size-8]
+        Dir_Attr_Info = self.__MFT_Entry_Attr(DirName, MFT_Entry_Attr)
+        return Sequence_Number, Flags_Used, Dir_Attr_Info
+
+
 
     def __MFT_Entry_Header(self, MFT_Entry_Header):
         Sequence_Number = int.from_bytes(MFT_Entry_Header[16:18], byteorder='little')
@@ -164,7 +180,9 @@ class NTFS:
         elif Attr_Name == '$DATA':
             Data = self.__DATA(Attr_Content)
             return {'Data':Data} 
-
+        elif Attr_Name == '$INDEX_ROOT':
+            Child_Node = self.__IDXROOT(Attr_Content)
+            return {'Files inside a Directory':Child_Node}
 
 
     def __Non_Resident_Attr(self, FileName, Attr_Name, Attr):
@@ -249,6 +267,36 @@ class NTFS:
     def __DATA(self, Attr_Content):
         return Attr_Content
     
+
+    def __IDXROOT(self, Attr_Content):
+        Attr_Content = Attr_Content[16:]
+        IDXEntry_Start_Offset = int.from_bytes(Attr_Content[:4], byteorder='little')
+
+        Child_Node = []
+
+        Attr_Content = Attr_Content[IDXEntry_Start_Offset:]
+        while True:
+            IDXEntry_Size = int.from_bytes(Attr_Content[8:10], byteorder='little')
+            Content_Size = int.from_bytes(Attr_Content[10:12], byteorder='little')
+            
+            IDXEntry = Attr_Content[:IDXEntry_Size]
+            Flags = int.from_bytes(IDXEntry[12:16], byteorder='little')
+            if Flags == 2:
+                break
+               
+            Content = IDXEntry[16:16+Content_Size]
+            Node_Name = b''                                 # Get File Name 
+            for i in range(0, Content[64] * 2, 2):
+                Node_Name += bytes([Content[66 + i]])
+            Node_Name = Node_Name.decode('utf-8')
+            Child_Node.append(Node_Name)
+
+            Attr_Content = Attr_Content[IDXEntry_Size:]
+
+        return Child_Node
+
+
+
     def __FileTimeConvert(self, timestamp):
         local=localtime((timestamp/10000000)-11644473600)
         time_format='%Y-%m-%d %H:%M:%S'
@@ -462,6 +510,8 @@ def option4(n):
         print('Back to Main menu')
 
 
+
+
 def option5(n):
     os.system('cls')
     print('\n\t<File Analysis>\t')
@@ -482,6 +532,32 @@ def option5(n):
         print('=======================================')
     else:
         print('Attribute : ', File_Attr_Info)
+        print('=======================================')
+
+    if input('Shall we go back to Main menu?[yes] : ') == 'yes':
+        print('Back to Main menu')
+
+
+def option6(n):
+    os.system('cls')
+    print('\n\t<Directory Analysis>\t')
+    DirName = input("Please enter a Directory name : ")
+    SequenceNumber, Flags_Used, Dir_Attr_Info = n.getDirInfo(DirName)
+    print('=======================================')
+    print('Sequence number : ', SequenceNumber)
+    print('Flags(In-used?) : ', Flags_Used)
+    if Dir_Attr_Info != None:
+        print('Attribute : ')
+        for attr in Dir_Attr_Info:
+            print(' ' + attr + ' : ')
+            for attrDict in Dir_Attr_Info[attr]:
+                for content in attrDict:
+                    print('\t' + content +' : ', end='')
+                    print(attrDict[content])
+            print('\n')
+        print('=======================================')
+    else:
+        print('Attribute : ', Dir_Attr_Info)
         print('=======================================')
 
     if input('Shall we go back to Main menu?[yes] : ') == 'yes':
@@ -519,6 +595,8 @@ def menu():
             option4(ntfs)
         elif option == 5:
             option5(ntfs)
+        elif option == 6:
+            option6(ntfs)    
         else:
             print('Terminates the program.')
             break    
