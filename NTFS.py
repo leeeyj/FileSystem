@@ -7,10 +7,10 @@ Creater : Yong Jin Lee (from Information Security, Math and Cryptography, Kookmi
 '''
 <Data Hiding> 
  1. File Slack 
- 2. MFT-Entry Slack 
+ 2. MFT Slack 
  3. Unallocation MFT-Entry 
  4. Change allocation MFT-Entry to Unallocation MFT-Entry 
- 5. ADS?
+ 5. ADS? 
 '''
 
 from tkinter import filedialog
@@ -19,8 +19,10 @@ from time import localtime, strftime
 import os
 
 class NTFS:
+
     Attr = {b'\x10\x00\x00\x00':'$STANDARD_INFORMATION', b'\x30\x00\x00\x00':'$FILE_NAME', \
             b'\x80\x00\x00\x00':'$DATA', b'\x90\x00\x00\x00':'$INDEX_ROOT'}
+
 
     File_Attr_Flag = {b'\x01\x00\x00\x00':'Read Only', b'\x02\x00\x00\x00':'Hidden', b'\x04\x00\x00\x00':'System', \
                       b'\x20\x00\x00\x00':'Archive', b'\x40\x00\x00\x00':'Device', b'\x80\x00\x00\x00':'Normal', \
@@ -28,6 +30,7 @@ class NTFS:
                       b'\x00\x08\x00\x00':'Compressed', b'\x00\x10\x00\x00':'Offline', b'\x00\x40\x00\x00':'Encrypted', \
                       b'\x00\x00\x00\x10':'Directory', b'\x03\x00\x00\x00':'Read Only and Hidden', b'\x05\x00\x00\x00':'Read Only and System', \
                       b'\x06\x00\x00\x00':'Hidden and System'}
+
 
     def __init__(self, fileName):
         # Read NTFS
@@ -52,26 +55,32 @@ class NTFS:
     def getType(self):
         return self.type
 
+
     # Get NTFS informations 
     def getNTFSInfo(self):
         return self.sector, self.cluster, self.VBR_Size, self.MFT_Offset
+
 
     # Get MFT
     def getMFTInfo(self):
         return self.MFT_Location 
 
+
     # Get File Tree in NTFS
     def getFileTree(self):
         return print(self.FileTreeView)
 
+
     # Get File informations 
     def getFileInfo(self, FileName):
         return self.__FileInfo(FileName)
-    
+
+
     # Get Directory informations 
     def getDirInfo(self, DirName):
         return self.__DirInfo(DirName)
-    
+
+
     # File Analysis 
     def __FileInfo(self, FileName):
         if FileName not in self.File_MFT_Entry_Address:
@@ -271,17 +280,23 @@ class NTFS:
     def __IDXROOT(self, Attr_Content):
         Attr_Content = Attr_Content[16:]
         IDXEntry_Start_Offset = int.from_bytes(Attr_Content[:4], byteorder='little')
+        
+        IDXEntry_Total_Size = int.from_bytes(Attr_Content[4:8], byteorder='little')
+        IDXEntry_Alloc_Size = int.from_bytes(Attr_Content[8:12], byteorder='little')
+
+        Deleted_IDXEntry_Size = IDXEntry_Alloc_Size - IDXEntry_Total_Size
 
         Child_Node = []
 
         Attr_Content = Attr_Content[IDXEntry_Start_Offset:]
         while True:
             IDXEntry_Size = int.from_bytes(Attr_Content[8:10], byteorder='little')
-            Content_Size = int.from_bytes(Attr_Content[10:12], byteorder='little')
+            Content_Size = int.from_bytes(Attr_Content[10:12], byteorder='little')      # 하위 노드 파일의 $FILE_NAME 속성 길이 
             
             IDXEntry = Attr_Content[:IDXEntry_Size]
             Flags = int.from_bytes(IDXEntry[12:16], byteorder='little')
             if Flags == 2:
+                Attr_Content = Attr_Content[IDXEntry_Size:]
                 break
                
             Content = IDXEntry[16:16+Content_Size]
@@ -293,8 +308,23 @@ class NTFS:
 
             Attr_Content = Attr_Content[IDXEntry_Size:]
 
-        return Child_Node
+        Attr_Content = Attr_Content[:Deleted_IDXEntry_Size]
+        while Attr_Content:     # 삭제된 파일 감지 
+            IDXEntry_Size = int.from_bytes(Attr_Content[8:10], byteorder='little')
+            Content_Size = int.from_bytes(Attr_Content[10:12], byteorder='little')      # 하위 노드 파일의 $FILE_NAME 속성 길이 
+            
+            IDXEntry = Attr_Content[:IDXEntry_Size]
 
+            Content = IDXEntry[16:16+Content_Size]
+            Node_Name = b''                                 # Get File Name 
+            for i in range(0, Content[64] * 2, 2):
+                Node_Name += bytes([Content[66 + i]])
+            Node_Name = Node_Name.decode('utf-8')
+            Child_Node.append(Node_Name + '(Deleted)')
+
+            Attr_Content = Attr_Content[IDXEntry_Size:]
+
+        return Child_Node
 
 
     def __FileTimeConvert(self, timestamp):
@@ -302,6 +332,7 @@ class NTFS:
         time_format='%Y-%m-%d %H:%M:%S'
         result= strftime(time_format, local)
         return result 
+
 
     # Export MFT Area
     def ExportMFT(self):
@@ -313,6 +344,7 @@ class NTFS:
         else:
             f.close()
             return print('Export Fail')
+
 
     # MFT Area 
     def __MFT(self):
@@ -348,6 +380,7 @@ class NTFS:
         else:
             return None, None  
         return MFT, MFT_location
+
 
     def __FileTree(self):
         MFT = self.MFT 
@@ -468,9 +501,9 @@ def option1(n):
     print('Cluster Size : ', cluster, 'bytes(%d sectors)' %(cluster // sector))
     print('VBR Size : ', VBR_Size, 'bytes(%d sectors)' %(cluster // sector))
     print('MFT start Offset : ', hex(MFT_Offset))       
-    # print('MFT-Entry Info : ', n.File_MFT_Entry_Address)
-    # print('MFT-Entry Info : ', n.MFT_Entry_Address_File)
-    # print('File Tree : ', n.FileTree)       
+    print('MFT-Entry Info : ', n.File_MFT_Entry_Address)
+    print('MFT-Entry Info : ', n.MFT_Entry_Address_File)
+    print('File Tree : ', n.FileTree)       
     print('=======================================')
     if input('Shall we go back to Main menu?[yes] : ') == 'yes':
         print('Back to Main menu')
@@ -508,8 +541,6 @@ def option4(n):
     print('=======================================')
     if input('Shall we go back to Main menu?[yes] : ') == 'yes':
         print('Back to Main menu')
-
-
 
 
 def option5(n):
