@@ -80,6 +80,57 @@ class NTFS:
     def getDirInfo(self, DirName):
         return self.__DirInfo(DirName)
 
+    # Check Hidden Data in Directory
+    def Hidden_Data_in_Dir(self, DirName):
+        if DirName not in self.File_MFT_Entry_Address:
+            print('Directory does not exist!')
+            return None
+
+        if self.MFT_Entry_Address_File[self.File_MFT_Entry_Address[DirName]][1] != 'Directory':
+            print('This is not a Directory!')
+            return None
+
+        MFT_Entry = self.MFT[self.File_MFT_Entry_Address[DirName] * 1024:(self.File_MFT_Entry_Address[DirName] + 1) * 1024]
+        
+        Attr_Offset = int.from_bytes(MFT_Entry[20:22], byteorder='little')
+        Used_MFT_Entry_Size = int.from_bytes(MFT_Entry[24:28], byteorder='little')
+        MFT_Entry_Attr = MFT_Entry[Attr_Offset:Used_MFT_Entry_Size-8]
+        
+        while MFT_Entry_Attr[:4] != b'\x90\x00\x00\x00':
+            MFT_Entry_Attr = MFT_Entry_Attr[int.from_bytes(MFT_Entry_Attr[4:8], byteorder='little'):]
+        
+        MFT_Entry_Attr = MFT_Entry_Attr[:int.from_bytes(MFT_Entry_Attr[4:8], byteorder='little')]
+        Attr_Content_Size = int.from_bytes(MFT_Entry_Attr[16:20], byteorder='little')
+        Attr_Content_Offset = int.from_bytes(MFT_Entry_Attr[20:22], byteorder='little')
+
+        Attr_Content = MFT_Entry_Attr[Attr_Content_Offset:Attr_Content_Offset + Attr_Content_Size]
+        Attr_Content = Attr_Content[16:]    # Index Node Header + Index Entries + End of Node
+
+        # Index_Entry_Start_Offset = int.from_bytes(Attr_Content[:4], byteorder='little')
+        Index_Entry_List_Size = int.from_bytes(Attr_Content[4:8], byteorder='little')
+        Index_Entry_List_Alloc_Size = int.from_bytes(Attr_Content[8:12], byteorder='little')
+        Deleted_Index_Entry_List_Size = Index_Entry_List_Alloc_Size - Index_Entry_List_Size
+
+        if Deleted_Index_Entry_List_Size == 0:
+            return None
+
+        Deleted_Index_Entry = Attr_Content[Index_Entry_List_Size:Index_Entry_List_Alloc_Size]
+        
+        HiddenFile = []
+        while Deleted_Index_Entry:
+            FRA = Deleted_Index_Entry[:8]
+            if int.from_bytes(FRA[6:], byteorder='little') & 1 == 1:    # Sequence Number가 홀수인 경우
+                FNA_Size = int.from_bytes(Deleted_Index_Entry[10:12], byteorder='little')
+                FNA = Deleted_Index_Entry[16:16 + FNA_Size]
+                FileName = b''                                 # Get File Name 
+                for i in range(0, FNA[64] * 2, 2):
+                    FileName += bytes([FNA[66 + i]])
+                FileName = FileName.decode('utf-8')
+                HiddenFile.append(FileName)
+            Index_Entry_length = int.from_bytes(Deleted_Index_Entry[8:10], byteorder='little')
+            Deleted_Index_Entry = Deleted_Index_Entry[Index_Entry_length:]
+        return HiddenFile
+
 
     # File Analysis 
     def __FileInfo(self, FileName):
@@ -501,9 +552,9 @@ def option1(n):
     print('Cluster Size : ', cluster, 'bytes(%d sectors)' %(cluster // sector))
     print('VBR Size : ', VBR_Size, 'bytes(%d sectors)' %(cluster // sector))
     print('MFT start Offset : ', hex(MFT_Offset))       
-    print('MFT-Entry Info : ', n.File_MFT_Entry_Address)
-    print('MFT-Entry Info : ', n.MFT_Entry_Address_File)
-    print('File Tree : ', n.FileTree)       
+    # print('MFT-Entry Info : ', n.File_MFT_Entry_Address)
+    # print('MFT-Entry Info : ', n.MFT_Entry_Address_File)
+    # print('File Tree : ', n.FileTree)       
     print('=======================================')
     if input('Shall we go back to Main menu?[yes] : ') == 'yes':
         print('Back to Main menu')
@@ -595,6 +646,41 @@ def option6(n):
         print('Back to Main menu')
 
 
+def option7(n):
+    os.system('cls')
+    print('\n\t<Hidden data detection in NTFS>\t')
+    print('=======================================')
+    print('1. Check Hidden File in Directory')
+    print('2. Check MFT-Entry Slack Space')
+    print('3. Check File-Slack')
+    print('=======================================')
+    option = int(input('Select option : '))
+
+    if option == 1:
+        os.system('cls')
+        print('\n\t<Hidden data detection in NTFS>\t')
+        print('=======================================')
+        print('Option : Check Hidden File in Directory')
+        DirName = input("Please enter a Directory name : ")
+        Hidden = n.Hidden_Data_in_Dir(DirName)
+        if Hidden != None:
+            print('Hidden File')
+            for i in range(0, len(Hidden)):
+                print((i + 1), '. ', Hidden[i])
+        else:
+            print('Hidden File does not exist')
+        print('=======================================')
+    else:
+        os.system('cls')
+        print('\n\t<Hidden data detection in NTFS>\t')
+        print('=======================================')
+        print('To be updated...')
+        print('=======================================')
+
+    if input('Shall we go back to Main menu?[yes] : ') == 'yes':
+        print('Back to Main menu')
+
+
 def menu():
     file = fileInput()
     print('Loading...')
@@ -610,8 +696,7 @@ def menu():
         print('4. File/Directory Tree                 ')
         print('5. File analysis                       ')
         print('6. Directory analysis                  ')
-        print('7. Data hiding in NTFS                 ')
-        print('8. Hidden data detection in NTFS       ')
+        print('7. Hidden data detection in NTFS       ')
         print('0. Eixt                                ')
         print('=======================================')
 
@@ -628,6 +713,8 @@ def menu():
             option5(ntfs)
         elif option == 6:
             option6(ntfs)    
+        elif option == 7:
+            option7(ntfs)
         else:
             print('Terminates the program.')
             break    
